@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GridLens — Photo in, solved sudoku out</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="logo">
+    <span class="logo-grid" aria-hidden="true">
+      <span></span><span></span><span></span>
+      <span></span><span class="lit"></span><span></span>
+      <span></span><span></span><span></span>
+    </span>
+    <span class="logo-text">GridLens</span>
+  </div>
+  <p class="header-note">vision pipeline + CNN digit reader</p>
+</header>
+
+<main>
+
+  <section class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Computer vision &middot; CNN &middot; backtracking solver</p>
+      <h1>Point.<br>Snap.<br><span class="accent">Solved.</span></h1>
+      <p class="lede">Upload a photo of any sudoku grid. The pipeline finds the
+        border, squares up the perspective, reads every digit, and a solver
+        fills in the rest — sent straight back to you as a finished grid.</p>
+    </div>
+
+    <div class="hero-upload">
+      <form id="uploadForm">
+        <div class="dropzone" id="dropzone" role="button" tabindex="0"
+             aria-label="Upload a photo of a sudoku puzzle">
+          <span class="bracket bracket-tl" aria-hidden="true"></span>
+          <span class="bracket bracket-tr" aria-hidden="true"></span>
+          <span class="bracket bracket-bl" aria-hidden="true"></span>
+          <span class="bracket bracket-br" aria-hidden="true"></span>
+          <span class="scanline" id="scanline" aria-hidden="true"></span>
+
+          <div class="dropzone-empty" id="dropzoneEmpty">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 16V4M12 4l-4 4M12 4l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <p class="dz-title">Drop a sudoku photo here</p>
+            <p class="dz-sub">or click to browse &mdash; JPG or PNG</p>
+          </div>
+
+          <img id="previewImg" class="dropzone-preview" alt="" hidden>
+        </div>
+
+        <input type="file" id="fileInput" accept="image/png, image/jpeg" hidden>
+
+        <div class="upload-actions">
+          <button type="button" class="btn btn-ghost" id="changeBtn" hidden>Choose a different photo</button>
+          <button type="submit" class="btn btn-primary" id="solveBtn" disabled>Solve puzzle</button>
+        </div>
+
+        <p class="error-msg" id="errorMsg" role="alert" hidden></p>
+      </form>
+    </div>
+  </section>
+
+  <section class="pipeline" id="pipeline" hidden aria-live="polite">
+    <ol class="pipeline-steps">
+      <li class="step" data-step="0">
+        <span class="step-index">01</span>
+        <span class="step-label">Reading the photo</span>
+      </li>
+      <li class="step" data-step="1">
+        <span class="step-index">02</span>
+        <span class="step-label">Finding the grid</span>
+      </li>
+      <li class="step" data-step="2">
+        <span class="step-index">03</span>
+        <span class="step-label">Reading each digit</span>
+      </li>
+      <li class="step" data-step="3">
+        <span class="step-index">04</span>
+        <span class="step-label">Filling in the rest</span>
+      </li>
+    </ol>
+  </section>
+
+  <section class="result" id="result" hidden>
+    <div class="result-source">
+      <p class="result-label">Your photo</p>
+      <img id="resultImg" alt="Uploaded sudoku photo">
+    </div>
+    <div class="result-grid-wrap">
+      <p class="result-label">Solved grid</p>
+      <div class="sudoku-grid" id="sudokuGrid" role="table" aria-label="Solved sudoku grid"></div>
+    </div>
+    <button type="button" class="btn btn-ghost" id="resetBtn">Solve another puzzle</button>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <p>OpenCV grid detection &rarr; CNN digit recognition &rarr; backtracking solver.</p>
+</footer>
+
+<script>
+  // Point this at wherever your FastAPI app is actually running.
+  // If the frontend is served from a different origin than the API,
+  // add CORSMiddleware on the FastAPI side and use the full URL below.
+  const API_URL = "/predict";
+
+  const dropzone     = document.getElementById('dropzone');
+  const dropzoneEmpty= document.getElementById('dropzoneEmpty');
+  const fileInput    = document.getElementById('fileInput');
+  const previewImg   = document.getElementById('previewImg');
+  const changeBtn     = document.getElementById('changeBtn');
+  const solveBtn      = document.getElementById('solveBtn');
+  const uploadForm    = document.getElementById('uploadForm');
+  const errorMsg      = document.getElementById('errorMsg');
+  const pipeline       = document.getElementById('pipeline');
+  const stepEls        = Array.from(document.querySelectorAll('.step'));
+  const result          = document.getElementById('result');
+  const resultImg       = document.getElementById('resultImg');
+  const sudokuGrid       = document.getElementById('sudokuGrid');
+  const resetBtn          = document.getElementById('resetBtn');
+
+  let selectedFile = null;
+  let stepTimer = null;
+
+  function showError(message) {
+    errorMsg.textContent = message;
+    errorMsg.hidden = false;
+  }
+
+  function clearError() {
+    errorMsg.hidden = true;
+    errorMsg.textContent = '';
+  }
+
+  function setFile(file) {
+    if (!file || !file.type.startsWith('image/')) {
+      showError('That file does not look like an image. Try a JPG or PNG.');
+      return;
+    }
+    clearError();
+    selectedFile = file;
+    const url = URL.createObjectURL(file);
+    previewImg.src = url;
+    previewImg.hidden = false;
+    dropzoneEmpty.hidden = true;
+    changeBtn.hidden = false;
+    solveBtn.disabled = false;
+  }
+
+  function resetUpload() {
+    selectedFile = null;
+    fileInput.value = '';
+    previewImg.hidden = true;
+    dropzoneEmpty.hidden = false;
+    changeBtn.hidden = true;
+    solveBtn.disabled = true;
+    clearError();
+  }
+
+  // --- Dropzone interactions ---
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fileInput.click();
+    }
+  });
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('drag-over');
+  });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setFile(e.dataTransfer.files[0]);
+    }
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) setFile(fileInput.files[0]);
+  });
+  changeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    resetUpload();
+    fileInput.click();
+  });
+
+  // --- Pipeline step animation while the request is in flight ---
+  function startPipelineAnimation() {
+    pipeline.hidden = false;
+    let current = 0;
+    stepEls.forEach(s => s.classList.remove('active', 'done'));
+    stepEls[0].classList.add('active');
+    stepTimer = setInterval(() => {
+      stepEls[current].classList.remove('active');
+      stepEls[current].classList.add('done');
+      current = Math.min(current + 1, stepEls.length - 1);
+      stepEls[current].classList.add('active');
+    }, 650);
+  }
+
+  function finishPipelineAnimation() {
+    clearInterval(stepTimer);
+    stepEls.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
+    setTimeout(() => { pipeline.hidden = true; }, 350);
+  }
+
+  // --- Build the 9x9 result grid with true sudoku box borders ---
+  function renderGrid(flatValues) {
+    sudokuGrid.innerHTML = '';
+    flatValues.forEach((value, i) => {
+      const row = Math.floor(i / 9);
+      const col = i % 9;
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      if (col === 2 || col === 5) cell.classList.add('thick-right');
+      if (row === 2 || row === 5) cell.classList.add('thick-bottom');
+      cell.textContent = value === 0 ? '' : value;
+      cell.setAttribute('role', 'cell');
+      sudokuGrid.appendChild(cell);
+    });
+  }
+
+  uploadForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!selectedFile) return;
+
+    clearError();
+    solveBtn.disabled = true;
+    solveBtn.textContent = 'Solving…';
+    startPipelineAnimation();
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      const response = await fetch(API_URL, { method: 'POST', body: formData });
+      const data = await response.json();
+
+      if (!response.ok) {
+        const message = data.error || data.detail || 'Something went wrong while solving that puzzle.';
+        throw new Error(message);
+      }
+
+      finishPipelineAnimation();
+      resultImg.src = previewImg.src;
+      renderGrid(data.solved_grid);
+      result.hidden = false;
+      result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    } catch (err) {
+      clearInterval(stepTimer);
+      pipeline.hidden = true;
+      showError(err.message || 'Could not reach the solver. Is the server running?');
+    } finally {
+      solveBtn.disabled = false;
+      solveBtn.textContent = 'Solve puzzle';
+    }
+  });
+
+  resetBtn.addEventListener('click', () => {
+    result.hidden = true;
+    resetUpload();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+</script>
+</body>
+</html>
