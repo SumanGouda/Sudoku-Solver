@@ -2,6 +2,7 @@
 python/
 bin/
 
+
 # Exclude the virtual environment folder
 .venv/
 venv/
@@ -17,3 +18,4 @@ __pycache__/
 *.pyc
 .png
 .jpg
+.webp

@@ -1,36 +1,52 @@
 class SudokuSolver:
-    def __init__(self, board):
-        self.sud = [row[:] for row in board]
-        
-    def is_safe(self, row, col, digit):
+    def __init__(self, board): 
+        self.board = [[int(cell) for cell in row] for row in board]
+        self.is_valid_start = self._validate_initial_board()
+
+    def _validate_initial_board(self):
+        """Checks the board for existing violations and returns False if invalid."""
+        for r in range(9):
+            for c in range(9):
+                val = self.board[r][c]
+                if val != 0: 
+                    self.board[r][c] = 0
+                    if not self._is_safe(r, c, val):
+                        print(f"VIOLATION FOUND at ({r}, {c}) with value {val}")
+                        return False
+                    self.board[r][c] = val
+        return True
+
+    def _is_safe(self, row, col, digit): 
+        # Check Row and Column
         for i in range(9):
-            if self.sud[row][i] == digit or self.sud[i][col] == digit:
+            if self.board[row][i] == digit or self.board[i][col] == digit:
                 return False
-        
+         
         start_row, start_col = (row // 3) * 3, (col // 3) * 3
         for i in range(start_row, start_row + 3):
             for j in range(start_col, start_col + 3):
-                if self.sud[i][j] == digit:
+                if self.board[i][j] == digit:
                     return False
         return True
-    
-    def helper(self, row, col):
-        if row == 9: return True
-        
-        next_row = row + 1 if col == 8 else row
-        next_col = (col + 1) % 9
-        
-        # Ensure we treat " " or 0 as empty
-        if self.sud[row][col] != 0 and self.sud[row][col] != " ": 
-            return self.helper(next_row, next_col)
-    
-        for digit in range(1, 10):  
-            if self.is_safe(row, col, digit):
-                self.sud[row][col] = digit
-                if self.helper(next_row, next_col): return True
-                self.sud[row][col] = 0 # Backtrack
-        return False
 
-    def solve(self):
-        self.helper(0, 0)
-        return self.sud
+    def solve(self): 
+        if not self.is_valid_start:
+            return False
+        return self._backtrack(0, 0)
+
+    def _backtrack(self, row, col): 
+        if row == 9:
+            return True
+        
+        next_row, next_col = (row, col + 1) if col < 8 else (row + 1, 0)
+        
+        if self.board[row][col] != 0:
+            return self._backtrack(next_row, next_col)
+    
+        for digit in range(1, 10):
+            if self._is_safe(row, col, digit):
+                self.board[row][col] = digit
+                if self._backtrack(next_row, next_col):
+                    return True
+                self.board[row][col] = 0  # Backtrack
+        return False

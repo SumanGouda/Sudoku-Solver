@@ -34,13 +34,34 @@ def _load_as_bgr(image_input):
     elif isinstance(image_input, Image.Image):
         pil_img = image_input
     elif isinstance(image_input, np.ndarray):
-        # Already a cv2-style array — assume it's BGR and pass it straight through.
         return image_input
     else:
         raise ValueError("Input must be a file path, a PIL Image, or a numpy image array.")
 
     pil_img = ImageOps.exif_transpose(pil_img).convert("RGB")
     return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+
+def _find_quadrilateral(hull):
+    """
+    Tries to simplify a contour's convex hull down to exactly 4 points,
+    trying progressively looser tolerances until one works.
+
+    Returns the 4-point approximation, or None if no tolerance in the
+    range produces a clean quadrilateral. We deliberately never fall
+    back to picking raw hull extremes (e.g. via sum/diff of all hull
+    points) — noise such as a shadow or glare merging into the grid's
+    silhouette can push a hull point past the real edge of the page,
+    and warpPerspective will then sample outside the source image,
+    filling the gap with solid black (visible as a sharp diagonal wedge
+    in the warped output).
+    """
+    peri = cv2.arcLength(hull, True)
+    for eps_factor in (0.02, 0.03, 0.05, 0.08, 0.1):
+        approx = cv2.approxPolyDP(hull, eps_factor * peri, True)
+        if len(approx) == 4:
+            return approx
+    return None
 
 
 def process_image(image_input, side_length=450):
@@ -78,22 +99,11 @@ def process_image(image_input, side_length=450):
             continue
 
         hull = cv2.convexHull(c)
-        peri = cv2.arcLength(hull, True)
-        approx = cv2.approxPolyDP(hull, 0.02 * peri, True)
+        approx = _find_quadrilateral(hull)
 
-        if len(approx) == 4:
+        if approx is not None:
             sudoku_contour = approx
-            break
-        else:
-            pts = hull.reshape(-1, 2)
-            sums = pts.sum(axis=1)
-            diffs = np.diff(pts, axis=1)
-            top_left = pts[np.argmin(sums)]
-            bottom_right = pts[np.argmax(sums)]
-            top_right = pts[np.argmin(diffs)]
-            bottom_left = pts[np.argmax(diffs)]
-            sudoku_contour = np.array([top_left, top_right, bottom_right, bottom_left], dtype="int32")
-            break
+            break 
 
     if sudoku_contour is None:
         raise ValueError("Error: Could not identify a 4-sided grid shape in the image.")
