@@ -1,0 +1,11 @@
+{
+  "input_shape": [
+    50,
+    50,
+    1
+  ],
+  "pixel_convention": "digit stroke = 0, background = 1 (inverted binary, see clean_and_resize_optimized)",
+  "normalization": "binary 0/1 via Otsu threshold + bitwise_not, then /255",
+  "num_classes": 10,
+  "class_mapping": "index == digit value (0-9)"
+}

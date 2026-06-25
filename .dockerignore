@@ -1,0 +1,32 @@
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment folders (Never copy your local venv)
+venv/
+.venv/
+env/
+.env/
+
+# Version Control
+.git/
+.gitignore
+
+# IDE and Editor settings
+.vscode/
+.idea/
+.DS_Store
+
+# Logs and Documentation
+*.log
+*.tmp
+docs/
+
+# Data and Models (Optional)
+# If your EMNIST folder is huge, keep it in the image, 
+# but if you are loading models from elsewhere, consider ignoring:
+# emnist/
+# models/
