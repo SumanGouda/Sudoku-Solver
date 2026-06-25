@@ -5,11 +5,7 @@ bin/
 
 # Exclude the virtual environment folder
 .venv/
-venv/
-
-# Exclude model files (if they are large)
-*.keras
-*.h5
+venv/ 
 
 # Exclude standard IDE and OS junk
 __pycache__/
